@@ -17,7 +17,6 @@
 
 sampler s0 : register(s0);
 float4 p0 : register(c0);
-float4 p1 : register(c1);
 
 #define width  (p0[0])
 #define height (p0[1])
@@ -274,7 +273,7 @@ float3 Bloom(float2 pos, float2 texture_size){
 // Distortion of scanlines, and end of screen alpha.
 float2 Warp(float2 pos){
   pos=pos*2.0-1.0;    
-  pos*=float2(1.0+(pos.y*pos.y)*warp.x, saturate(1.0+(pos.x*pos.x)*warp.y));
+  pos*=float2(1.0+(pos.y*pos.y)*warp.x, 1.0+(pos.x*pos.x)*warp.y);
   return pos*0.5+0.5;}
 
 // Shadow mask 
@@ -338,6 +337,11 @@ float4 main(float2 texcoord : TexCoord) : COLOR
 {    
     float2 pos = Warp(texcoord);
     float3 outColor = Tri(pos, screenSize);
+	
+	float2 vig_pos = abs(pos - 0.5);
+	if (vig_pos.x > 0.49 || vig_pos.y > 0.49)	{
+		return float4(0,0,0,0);
+	}
 
     if(DO_BLOOM)
         //Add Bloom
