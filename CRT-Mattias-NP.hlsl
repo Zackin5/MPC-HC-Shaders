@@ -45,7 +45,6 @@ WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 */
 sampler s0 : register(s0);
 float4 p0 : register(c0);
-float4 p1 : register(c1);
 
 #define width  (p0[0])
 #define height (p0[1])
@@ -59,28 +58,12 @@ float4 p1 : register(c1);
 uniform float blur_x = 1.0; // Horizontal Blur (0.0 to 5.0)
 uniform float blur_y = 1.0; // Vertical Blur (0.0 to 5.0)
 
-uniform float curvature = 2.0; // Curvature (0.0001 to 4.0)
+#define curvature 2.0 // Curvature (0.0001 to 4.0)
 
-#define wiggle_toggle true // Interference
+#define wiggle_toggle false // Interference
 #define scanroll false // Rolling Scanlines
 
-float4 Sample_NewPixie_Blur(float2 uv_tx)
-{
-   float2 blur = float2(blur_x, blur_y) * pixelSize;
-   float2 uv = uv_tx.xy;
-   float4 sum = tex2D(s0, uv ) * 0.2270270270;
-   sum += tex2D(s0, float2( uv.x - 4.0 * blur.x, uv.y - 4.0 * blur.y ) ) * 0.0162162162;
-   sum += tex2D(s0, float2( uv.x - 3.0 * blur.x, uv.y - 3.0 * blur.y ) ) * 0.0540540541;
-   sum += tex2D(s0, float2( uv.x - 2.0 * blur.x, uv.y - 2.0 * blur.y ) ) * 0.1216216216;
-   sum += tex2D(s0, float2( uv.x - 1.0 * blur.x, uv.y - 1.0 * blur.y ) ) * 0.1945945946;
-   sum += tex2D(s0, float2( uv.x + 1.0 * blur.x, uv.y + 1.0 * blur.y ) ) * 0.1945945946;
-   sum += tex2D(s0, float2( uv.x + 2.0 * blur.x, uv.y + 2.0 * blur.y ) ) * 0.1216216216;
-   sum += tex2D(s0, float2( uv.x + 3.0 * blur.x, uv.y + 3.0 * blur.y ) ) * 0.0540540541;
-   sum += tex2D(s0, float2( uv.x + 4.0 * blur.x, uv.y + 4.0 * blur.y ) ) * 0.0162162162;
-   return sum;
-}
-
-float3 tsample( float2 tc, float offset, float2 res )
+float3 tsample( float2 tc )
 {
 	tc = tc * float2(1.025, 0.92) + float2(-0.0125, 0.04);
     if(max(abs(tc.x-0.5),abs(tc.y-0.5))>0.5)
@@ -89,13 +72,6 @@ float3 tsample( float2 tc, float offset, float2 res )
 	return s*float3(1.25,1.25,1.25);
 }
 
-float3 tsample_blur(float2 tc, float offset, float2 res )
-{
-	tc = tc * float2(1.025, 0.92) + float2(-0.0125, 0.04);
-	float3 s = pow( abs( Sample_NewPixie_Blur( float2( tc.x, 1.0-tc.y ) ).rgb), float3( 2.2,2.2,2.2 ) );
-	return s*float3(1.25,1.25,1.25);
-}
-		
 float3 filmic( float3 LinearColor )
 {
 	float3 x = max( float3(0.0,0.0,0.0), LinearColor-float3(0.004,0.004,0.004));
@@ -104,8 +80,10 @@ float3 filmic( float3 LinearColor )
 
 float2 curve( float2 uv )
 {
-    uv=uv*2.0-1.0;    
-    uv*=float2(1.0+(uv.y*uv.y)*curvature*0.002, 1.0+(uv.x*uv.x)*curvature*0.002);
+    uv=uv*2.0-1.0;
+    uv*=float2(
+        1.0+(uv.y*uv.y*resolution.x)*curvature*0.0001, 
+        1.0+(uv.x*uv.x*resolution.y)*curvature*0.0001);
     return uv*0.5+0.5;
     // uv = (uv - 0.5);// * 2.0;
     // uv *= float2(0.925, 1.095);
@@ -113,16 +91,16 @@ float2 curve( float2 uv )
     // uv.x *= 1.0 + pow((abs(uv.y) / 4.0), 2.0) * pixelSize;
     // uv.y *= 1.0 + pow((abs(uv.x) / 3.0), 2.0) * pixelSize;
     // uv /= curvature;
-    // uv  += 0.5;
+    // uv += 0.5;
     // uv =  uv *0.92 + 0.04;
     // return uv;
 }
-		
+
 float rand(float2 co){ return frac(sin(dot(co.xy ,float2(12.9898,78.233))) * 43758.5453); }
 
 #define mod(x,y) (x-y*floor(x/y))
 
-float4 main(float4 pos: SV_Position, float2 uv_tx : TEXCOORD0) : SV_Target
+float4 main(float2 uv_tx : TexCoord) : COLOR
 {
     // stop time variable so the screen doesn't wiggle
     float time = mod(FCount, 849.0) * 36.0;
@@ -134,6 +112,7 @@ float4 main(float4 pos: SV_Position, float2 uv_tx : TEXCOORD0) : SV_Target
     float2 curved_uv = lerp( curve( uv ), uv, 0.4 );
     float scale = -0.101;
     float2 scuv = curved_uv*(1.0-scale)+scale/2.0+float2(0.003, -0.001);
+    // float2 scuv = curved_uv;
 // 
     /* Main color, Bleed */
     float3 col;
@@ -145,33 +124,30 @@ float4 main(float4 pos: SV_Position, float2 uv_tx : TEXCOORD0) : SV_Target
     x+=o*0.25;
    // make time do something again
     time = float(mod(FCount, 640) * 1); 
-    col.r = tsample(float2(x+scuv.x+0.0009,scuv.y+0.0009),resolution.y/800.0, resolution ).x+0.02;
-    col.g = tsample(float2(x+scuv.x+0.0000,scuv.y-0.0011),resolution.y/800.0, resolution ).y+0.02;
-    col.b = tsample(float2(x+scuv.x-0.0015,scuv.y+0.0000),resolution.y/800.0, resolution ).z+0.02;
+    col.r = tsample(float2(x+scuv.x+0.0009,scuv.y+0.0009)).x+0.02;
+    col.g = tsample(float2(x+scuv.x+0.0000,scuv.y-0.0011)).y+0.02;
+    col.b = tsample(float2(x+scuv.x-0.0015,scuv.y+0.0000)).z+0.02;
     float i = clamp(col.r*0.299 + col.g*0.587 + col.b*0.114, 0.0, 1.0 );
     i = pow( 1.0 - pow(i,2.0), 1.0 );
     i = (1.0-i) * 0.85 + 0.15; 
-    
+
     /* Ghosting */
     float ghs = 0.15;
     float3 r = tsample(float2(x-0.014*1.0, -0.027)*0.85+0.007*float2( 0.35*sin(1.0/7.0 + 15.0*curved_uv.y + 0.9*time), 
-        0.35*sin( 2.0/7.0 + 10.0*curved_uv.y + 1.37*time) )+float2(scuv.x+0.001,scuv.y+0.001),
-        5.5+1.3*sin( 3.0/9.0 + 31.0*curved_uv.x + 1.70*time),resolution).xyz*float3(0.5,0.25,0.25);
+        0.35*sin( 2.0/7.0 + 10.0*curved_uv.y + 1.37*time) )+float2(scuv.x+0.001,scuv.y+0.001)).xyz*float3(0.5,0.25,0.25);
     float3 g = tsample(float2(x-0.019*1.0, -0.020)*0.85+0.007*float2( 0.35*cos(1.0/9.0 + 15.0*curved_uv.y + 0.5*time), 
-        0.35*sin( 2.0/9.0 + 10.0*curved_uv.y + 1.50*time) )+float2(scuv.x+0.000,scuv.y-0.002),
-        5.4+1.3*sin( 3.0/3.0 + 71.0*curved_uv.x + 1.90*time),resolution).xyz*float3(0.25,0.5,0.25);
+        0.35*sin( 2.0/9.0 + 10.0*curved_uv.y + 1.50*time) )+float2(scuv.x+0.000,scuv.y-0.002));
     float3 b = tsample(float2(x-0.017*1.0, -0.003)*0.85+0.007*float2( 0.35*sin(2.0/3.0 + 15.0*curved_uv.y + 0.7*time), 
-        0.35*cos( 2.0/3.0 + 10.0*curved_uv.y + 1.63*time) )+float2(scuv.x-0.002,scuv.y+0.000),
-        5.3+1.3*sin( 3.0/7.0 + 91.0*curved_uv.x + 1.65*time),resolution).xyz*float3(0.25,0.25,0.5);
-		
+        0.35*cos( 2.0/3.0 + 10.0*curved_uv.y + 1.63*time) )+float2(scuv.x-0.002,scuv.y+0.000)).xyz*float3(0.25,0.25,0.5);
+
     col += float3(ghs*(1.0-0.299),ghs*(1.0-0.299),ghs*(1.0-0.299))*pow(clamp(float3(3.0,3.0,3.0)*r,float3(0.0,0.0,0.0),float3(1.0,1.0,1.0)),float3(2.0,2.0,2.0))*float3(i,i,i);
     col += float3(ghs*(1.0-0.587),ghs*(1.0-0.587),ghs*(1.0-0.587))*pow(clamp(float3(3.0,3.0,3.0)*g,float3(0.0,0.0,0.0),float3(1.0,1.0,1.0)),float3(2.0,2.0,2.0))*float3(i,i,i);
     col += float3(ghs*(1.0-0.114),ghs*(1.0-0.114),ghs*(1.0-0.114))*pow(clamp(float3(3.0,3.0,3.0)*b,float3(0.0,0.0,0.0),float3(1.0,1.0,1.0)),float3(2.0,2.0,2.0))*float3(i,i,i);
-		
+
     /* Level adjustment (curves) */
     col *= float3(0.95,1.05,0.95);
     col = clamp(col*1.3 + 0.75*col*col + 1.25*col*col*col*col*col,float3(0.0,0.0,0.0),float3(10.0,10.0,10.0));
-		
+
     /* Vignette */
     float vig = (0.1 + 1.0*16.0*curved_uv.x*curved_uv.y*(1.0-curved_uv.x)*(1.0-curved_uv.y));
     vig = 1.3*pow(vig,0.5);
@@ -184,22 +160,22 @@ float4 main(float4 pos: SV_Position, float2 uv_tx : TEXCOORD0) : SV_Target
     float scans = clamp( 0.35+0.18*sin(6.0*time-curved_uv.y*resolution.y*1.5), 0.0, 1.0);
     float s = pow(scans,0.9);
     col = col * float3(s,s,s);
-		
+
     /* Vertical lines (shadow mask) */
     col*=1.0-0.23*(clamp((mod(uv_tx.xy.x, 3.0))/2.0,0.0,1.0));
-		
+
     /* Tone map */
     col = filmic( col );
-		
+
     /* Noise */
     /*float2 seed = floor(curved_uv*resolution.xy*float2(0.5))/resolution.xy;*/
     float2 seed = curved_uv*resolution.xy;;
     /* seed = curved_uv; */
     col -= 0.015*pow(float3(rand( seed +time ), rand( seed +time*2.0 ), rand( seed +time * 3.0 ) ), float3(1.5,1.5,1.5) );
-		
+
     /* Flicker */
     col *= (1.0-0.004*(sin(50.0*time+curved_uv.y*2.0)*0.5+0.5));
-		
+
     /* Clamp */
    if (curved_uv.x < 0.0 || curved_uv.x > 1.0)
        col *= 0.0;
@@ -207,20 +183,4 @@ float4 main(float4 pos: SV_Position, float2 uv_tx : TEXCOORD0) : SV_Target
        col *= 0.0;
 
     return float4( col, 1.0 );
-}
-
-technique CRTNewPixie
-{
-	pass PS_CRTNewPixie_Blur
-	{
-		VertexShader = PostProcessVS;
-		PixelShader = PS_NewPixie_Blur;
-		RenderTarget = GaussianBlurTex;
-	}
-	
-	pass PS_CRTNewPixie_Final
-	{
-		VertexShader = PostProcessVS;
-		PixelShader = PS_NewPixie_Final;
-	}
 }

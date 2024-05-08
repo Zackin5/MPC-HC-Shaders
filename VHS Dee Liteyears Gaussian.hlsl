@@ -24,9 +24,10 @@ float4 p1 :  register(c1);
 #define luma_pixel_ratio (screenSize / luma_res)
 #define image_gamma 2.2
 #define output_gamma 2.2
-#define output_exposure 1.6
+#define output_exposure 1.0
+#define output_saturation 1.1
 
-#define sample_count 12
+#define sample_count 16
 #define sample_edge_curve 48
 
 
@@ -65,28 +66,28 @@ float4 sample_gaussian(float2 texCoord, float2 sample_width, float2 sample_res)
 		sample_diag += sample_filtered_pix(pixel_coord,
 			float2(
 				x *  (sample_width.x / sample_count), 
-				x * (sample_width.y / sample_count)
+				x * (sample_width.x / sample_count)
 			), sample_res);
 		sample_diag += sample_filtered_pix(pixel_coord,
 			float2(
 				x * -(sample_width.x / sample_count), 
-				x * (sample_width.y / sample_count)
+				x * (sample_width.x / sample_count)
 			), sample_res);
 		sample_diag += sample_filtered_pix(pixel_coord,
 			float2(
 				x *  (sample_width.x / sample_count), 
-				x * -(sample_width.y / sample_count)
+				x * -(sample_width.x / sample_count)
 			), sample_res);
 		sample_diag += sample_filtered_pix(pixel_coord,
 			float2(
 				x * -(sample_width.x / sample_count), 
-				x * -(sample_width.y / sample_count)
+				x * -(sample_width.x / sample_count)
 			), sample_res);
 
 		sample_blurred += (sample_diag + 2 * sample_plan + 4 * sample_orig) * 0.0625;
 	}
 
-	sample_blurred /= sample_count * sample_count;
+	sample_blurred /= sample_count * (sample_count / 4.0);
 
 	return sample_blurred;
 }
@@ -149,6 +150,7 @@ float4 sample_color(float2 texCoord)
 	float2 pixel_screen_coord = floor(texCoord * screenSize);
 	// float2 sample_width = float2(1.62 * 2, 0.5);
 	float2 sample_width = floor(source_res / 2) / color_res;
+	// float2 sample_width = source_res / color_res;
 	// float2 sample_width = screenSize / color_res;
 
 	return sample_gaussian(texCoord, sample_width, color_res);
@@ -191,6 +193,7 @@ float4 main(float2 tex : TEXCOORD0) : COLOR
 	float4 color = sample_color(tex);	// Sample scene color
 	float luma = sample_luma(tex);		// Sample scene luma
 	float2 hs = rgb2hs(color.rgb);		// Convert color to hue/saturation
+	hs.y *= output_saturation;
 
 	// Blend image channels
 	color = float4(hsv2rgb(float3(hs.x, hs.y, luma)).rgb, color.a);
